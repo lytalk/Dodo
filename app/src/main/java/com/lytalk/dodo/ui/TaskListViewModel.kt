@@ -34,7 +34,7 @@ class TaskListViewModel(app: Application) : AndroidViewModel(app) {
             dao.update(updated)
             val app = getApplication<Application>()
             if (enabled) {
-                AlarmScheduler.scheduleNext(app, updated)
+                AlarmScheduler.scheduleNext(app, updated, resetInterval = true)
                 KeepAliveService.start(app)
             } else {
                 AlarmScheduler.cancel(app, task.id)

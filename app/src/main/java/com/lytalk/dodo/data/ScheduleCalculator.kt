@@ -19,10 +19,17 @@ object ScheduleCalculator {
         return when (task.scheduleType) {
             ONCE -> task.onceAtMillis?.takeIf { it > now }
             WEEKLY -> nextWeekly(now, task.hour, task.minute, task.daysMask)
-            INTERVAL_MINUTE -> now + task.minute.coerceIn(1, 59) * 60_000L
-            INTERVAL_HOUR -> now + task.hour.coerceIn(1, 24) * 3_600_000L
+            INTERVAL_MINUTE, INTERVAL_HOUR -> nextInterval(task, now)
             else -> nextDaily(now, task.hour, task.minute)
         }
+    }
+
+    fun isInterval(type: String): Boolean = type == INTERVAL_MINUTE || type == INTERVAL_HOUR
+
+    fun intervalMillis(task: TaskEntity): Long? = when (task.scheduleType) {
+        INTERVAL_MINUTE -> task.minute.coerceIn(1, 59) * 60_000L
+        INTERVAL_HOUR -> task.hour.coerceIn(1, 24) * 3_600_000L
+        else -> null
     }
 
     fun nextClock(hour: Int, minute: Int, now: Long = System.currentTimeMillis()): Long =
@@ -56,6 +63,18 @@ object ScheduleCalculator {
             if (candidate > now) return candidate
         }
         return null
+    }
+
+    private fun nextInterval(task: TaskEntity, now: Long): Long {
+        val period = intervalMillis(task) ?: return now
+        val stored = task.nextRunAt
+        if (stored != null && stored > now) return stored
+        if (stored != null) {
+            var next = stored + period
+            while (next <= now) next += period
+            return next
+        }
+        return now + period
     }
 
     private fun atClock(date: LocalDate, hour: Int, minute: Int, zone: ZoneId): ZonedDateTime =

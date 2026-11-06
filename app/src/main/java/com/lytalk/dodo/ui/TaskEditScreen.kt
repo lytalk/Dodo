@@ -185,6 +185,7 @@ private fun TaskEditScreen(
             viewModel.daysMask,
             viewModel.onceAtMillis,
             viewModel.enabled,
+            viewModel.nextRunAt,
         ) {
             val entity = com.lytalk.dodo.data.TaskEntity(
                 name = "",
@@ -196,6 +197,7 @@ private fun TaskEditScreen(
                 onceAtMillis = viewModel.onceAtMillis,
                 lastRunAt = null,
                 lastResult = null,
+                nextRunAt = viewModel.nextRunAt,
             )
             scheduleLabel(entity.copy(enabled = viewModel.enabled)) to nextRunLabel(entity)
         }
@@ -251,7 +253,10 @@ private fun TaskEditScreen(
                     listOf(1, 5, 10, 15, 30).forEach { value ->
                         FilterChip(
                             selected = viewModel.minute == value,
-                            onClick = { viewModel.minute = value },
+                            onClick = {
+                                viewModel.minute = value
+                                viewModel.nextRunAt = null
+                            },
                             label = { Text("$value 分钟") },
                         )
                     }
@@ -262,7 +267,10 @@ private fun TaskEditScreen(
                     listOf(1, 2, 3, 6, 12).forEach { value ->
                         FilterChip(
                             selected = viewModel.hour == value,
-                            onClick = { viewModel.hour = value },
+                            onClick = {
+                                viewModel.hour = value
+                                viewModel.nextRunAt = null
+                            },
                             label = { Text("$value 小时") },
                         )
                     }

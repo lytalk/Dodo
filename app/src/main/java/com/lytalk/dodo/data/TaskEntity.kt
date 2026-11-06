@@ -20,4 +20,5 @@ data class TaskEntity(
     val cleanupType: String = "NONE",
     val cleanupStepType: String = "",
     val cleanupPayload: String = "",
+    val nextRunAt: Long? = null,
 )

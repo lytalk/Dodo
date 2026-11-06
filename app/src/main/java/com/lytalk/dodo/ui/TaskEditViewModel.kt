@@ -46,6 +46,7 @@ class TaskEditViewModel(
     private var onceDateManual = false
     private var savedHour = 8
     private var savedMinute = 0
+    var nextRunAt by mutableStateOf<Long?>(null)
     var webhookUrl by mutableStateOf("")
     var retryCount by mutableStateOf(0)
     var cleanupType by mutableStateOf(CleanupTypes.NONE)
@@ -78,6 +79,7 @@ class TaskEditViewModel(
                         savedMinute = task.minute
                     }
                     onceAtMillis = task.onceAtMillis ?: ScheduleCalculator.nextClock(task.hour, task.minute)
+                    nextRunAt = task.nextRunAt
                     webhookUrl = task.webhookUrl
                     retryCount = task.retryCount
                     cleanupType = task.cleanupType
@@ -111,6 +113,7 @@ class TaskEditViewModel(
             savedHour = hour
             savedMinute = minute
         }
+        if (enteringInterval) nextRunAt = null
         scheduleType = type
         when (type) {
             ScheduleCalculator.INTERVAL_MINUTE -> if (minute !in MINUTE_INTERVALS) minute = 15
@@ -261,6 +264,7 @@ class TaskEditViewModel(
                     cleanupPayload = if (cleanupType == CleanupTypes.STEP) cleanupPayload else "",
                     lastRunAt = previous?.lastRunAt,
                     lastResult = previous?.lastResult,
+                    nextRunAt = nextRunAt,
                 )
                 val id = if (taskId == 0L) dao.insert(entity) else {
                     dao.update(entity)
@@ -280,7 +284,7 @@ class TaskEditViewModel(
                 val saved = dao.get(id) ?: return@launch
                 val app = getApplication<Application>()
                 if (saved.enabled) {
-                    AlarmScheduler.scheduleNext(app, saved)
+                    AlarmScheduler.scheduleNext(app, saved, resetInterval = true)
                     KeepAliveService.start(app)
                 } else {
                     AlarmScheduler.cancel(app, id)

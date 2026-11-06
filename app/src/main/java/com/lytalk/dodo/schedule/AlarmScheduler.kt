@@ -9,6 +9,8 @@ import com.lytalk.dodo.MainActivity
 import com.lytalk.dodo.data.AppDatabase
 import com.lytalk.dodo.data.ScheduleCalculator
 import com.lytalk.dodo.data.TaskEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object AlarmScheduler {
     const val EXTRA_TASK_ID = "task_id"
@@ -21,10 +23,11 @@ object AlarmScheduler {
         }
     }
 
-    fun scheduleNext(context: Context, task: TaskEntity) {
-        val triggerAt = ScheduleCalculator.nextTrigger(task)
+    suspend fun scheduleNext(context: Context, task: TaskEntity, resetInterval: Boolean = false) {
+        val armed = rememberInterval(context, task, resetInterval)
+        val triggerAt = ScheduleCalculator.nextTrigger(armed)
         if (triggerAt == null) {
-            cancel(context, task.id)
+            cancel(context, armed.id)
             return
         }
         val alarmManager = context.getSystemService(AlarmManager::class.java)
@@ -35,12 +38,31 @@ object AlarmScheduler {
         try {
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(triggerAt, showPending(context)),
-                alarmPending(context, task.id),
+                alarmPending(context, armed.id),
             )
-            Log.i(TAG, "已登记任务 ${task.id}，触发时间 $triggerAt")
+            Log.i(TAG, "已登记任务 ${armed.id}，触发时间 $triggerAt")
         } catch (error: SecurityException) {
             Log.e(TAG, "登记定时唤醒失败", error)
         }
+    }
+
+    private suspend fun rememberInterval(context: Context, task: TaskEntity, resetInterval: Boolean): TaskEntity {
+        val period = ScheduleCalculator.intervalMillis(task) ?: return task
+        val now = System.currentTimeMillis()
+        val stored = task.nextRunAt
+        val next = when {
+            !resetInterval && stored != null && stored > now -> stored
+            !resetInterval && stored != null -> {
+                var upcoming = stored + period
+                while (upcoming <= now) upcoming += period
+                upcoming
+            }
+            else -> now + period
+        }
+        if (next == stored) return task
+        val updated = task.copy(nextRunAt = next)
+        withContext(Dispatchers.IO) { AppDatabase.get(context).taskDao().update(updated) }
+        return updated
     }
 
     fun cancel(context: Context, taskId: Long) {
