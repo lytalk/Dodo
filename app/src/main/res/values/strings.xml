@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">嘟嘟</string>
+    <string name="a11y_desc">按你在嘟嘟里保存的任务，到点打开应用并执行步骤。只在这台手机上执行你自己创建的步骤。</string>
+    <string name="guard_channel">嘟嘟</string>
+    <string name="guard_channel_desc">有任务启用时保持运行，到点自动执行</string>
+</resources>
