@@ -35,12 +35,30 @@ class AutoAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        serviceInfo = serviceInfo.apply {
-            flags = flags or
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+        applyRetrieval(active = false)
+    }
+
+    fun setRetrievalActive(active: Boolean) {
+        applyRetrieval(active)
+    }
+
+    private fun applyRetrieval(active: Boolean) {
+        val info = serviceInfo ?: return
+        val baseFlags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        info.eventTypes = if (active) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        } else {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        }
+        info.flags = if (active) {
+            baseFlags or
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
                 AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+        } else {
+            baseFlags
         }
+        info.notificationTimeout = 100
+        serviceInfo = info
     }
 
     fun showPicker() {
@@ -201,7 +219,7 @@ class NodeActions(private val service: AccessibilityService) {
         matches.sortedWith(
             compareBy<AccessibilityNodeInfo> { it.textSpecificity(query) }
                 .thenByDescending { it.isClickable },
-        ).any { showAndClick(it) }
+        ).any { showAndClick(session, it) }
     }
 
     fun clickViewId(viewId: String): Boolean = withSession { session ->
@@ -214,7 +232,7 @@ class NodeActions(private val service: AccessibilityService) {
             }
             session.matchingIn(root, { it.viewIdResourceName == viewId }, matches)
         }
-        matches.sortedByDescending { it.isClickable }.any { showAndClick(it) }
+        matches.sortedByDescending { it.isClickable }.any { showAndClick(session, it) }
     }
 
     fun scrollLargest(forward: Boolean): Boolean = withSession { session ->
@@ -332,19 +350,21 @@ class NodeActions(private val service: AccessibilityService) {
         rows
     }
 
-    private fun showAndClick(node: AccessibilityNodeInfo): Boolean {
+    private fun showAndClick(session: Session, node: AccessibilityNodeInfo): Boolean {
         node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
-        return clickNode(node)
+        return clickNode(session, node)
     }
 
-    private fun clickNode(node: AccessibilityNodeInfo): Boolean {
+    private fun clickNode(session: Session, node: AccessibilityNodeInfo): Boolean {
         var current: AccessibilityNodeInfo? = node
         var hops = 0
         while (current != null && hops < 8) {
             if (current.isClickable && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                 return true
             }
-            current = current.parent
+            val parent = current.parent ?: break
+            session.track(parent)
+            current = parent
             hops++
         }
         return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)

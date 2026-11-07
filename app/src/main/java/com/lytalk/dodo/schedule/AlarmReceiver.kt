@@ -7,6 +7,8 @@ import com.lytalk.dodo.data.AppDatabase
 import com.lytalk.dodo.data.ScheduleCalculator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class AlarmReceiver : BroadcastReceiver() {
@@ -15,7 +17,8 @@ class AlarmReceiver : BroadcastReceiver() {
         if (taskId < 0L) return
         val pending = goAsync()
         val appContext = context.applicationContext
-        CoroutineScope(Dispatchers.IO).launch {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        scope.launch {
             try {
                 val task = AppDatabase.get(appContext).taskDao().get(taskId)
                 if (task != null && task.enabled) {
@@ -27,6 +30,6 @@ class AlarmReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
-        }
+        }.invokeOnCompletion { scope.cancel() }
     }
 }

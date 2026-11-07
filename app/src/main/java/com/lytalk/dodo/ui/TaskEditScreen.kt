@@ -3,17 +3,23 @@ package com.lytalk.dodo.ui
 import android.app.Application
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -53,6 +59,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -137,7 +144,7 @@ fun TaskEditRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun TaskEditScreen(
     viewModel: TaskEditViewModel,
@@ -201,11 +208,35 @@ private fun TaskEditScreen(
             )
             scheduleLabel(entity.copy(enabled = viewModel.enabled)) to nextRunLabel(entity)
         }
-        Column(
+        val offset = remember { mutableFloatStateOf(0f) }
+        var viewport by remember { mutableIntStateOf(0) }
+        var contentHeight by remember { mutableIntStateOf(0) }
+        val maxOffset = (contentHeight - viewport).coerceAtLeast(0).toFloat()
+        val scrollState = rememberScrollableState { delta ->
+            val previous = offset.floatValue
+            val next = (previous + delta).coerceIn(-maxOffset, 0f)
+            offset.floatValue = next
+            next - previous
+        }
+        Box(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .onSizeChanged { viewport = it.height }
+                .clipToBounds()
+                .scrollable(
+                    state = scrollState,
+                    orientation = Orientation.Vertical,
+                    overscrollEffect = null,
+                    bringIntoViewSpec = NoChaseBringIntoView,
+                ),
+        ) {
+        MovingLayer(offset) {
+        Column(
+            Modifier
+                .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                .onSizeChanged { contentHeight = it.height }
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -455,6 +486,8 @@ private fun TaskEditScreen(
                 Text(if (viewModel.saving) "正在保存" else "保存")
             }
         }
+        }
+        }
     }
 
     when (val current = dialog) {
@@ -689,6 +722,21 @@ private val stepChoices = listOf(
 
 private fun startNodePick(context: android.content.Context, viewModel: TaskEditViewModel) {
     viewModel.error = beginNodePick(context)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+private object NoChaseBringIntoView : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
+
+@Composable
+private fun MovingLayer(
+    offset: androidx.compose.runtime.FloatState,
+    content: @Composable () -> Unit,
+) {
+    Box(Modifier.graphicsLayer(translationY = offset.floatValue)) {
+        content()
+    }
 }
 
 @Composable

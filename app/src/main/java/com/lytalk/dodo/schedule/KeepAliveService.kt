@@ -90,10 +90,15 @@ class KeepAliveService : Service() {
                 ensureAwake()
                 val accessibility = AutoAccessibilityService.instance
                     ?: return finishTask(task, fromAlarm, "无障碍服务未开启")
+                accessibility.setRetrievalActive(true)
                 val steps = withContext(Dispatchers.IO) {
                     AppDatabase.get(this@KeepAliveService).taskDao().stepsFor(taskId)
                 }
-                StepExecutor(accessibility).run(steps, task)
+                try {
+                    StepExecutor(accessibility).run(steps, task)
+                } finally {
+                    accessibility.setRetrievalActive(false)
+                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 error.message ?: "执行失败"
@@ -192,7 +197,11 @@ class KeepAliveService : Service() {
         val open = PendingIntent.getActivity(
             this,
             1,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return Notification.Builder(this, DodoApp.CHANNEL_ID)
