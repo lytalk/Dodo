@@ -161,6 +161,9 @@ class AutoAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    fun isPickTarget(pkg: String): Boolean =
+        pkg.isNotBlank() && pkg !in ignoredPackages() && pkg !in BlockedPickPackages
+
     fun inspect(): List<InspectRow> = NodeActions(this).inspect()
 
     fun foregroundPackage(): String? {
@@ -189,6 +192,16 @@ class AutoAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile
         var instance: AutoAccessibilityService? = null
+
+        private val BlockedPickPackages = setOf(
+            "com.android.settings",
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.miui.securitycenter",
+            "com.miui.securitycore",
+            "com.lbe.security.miui",
+            "com.miui.powerkeeper",
+        )
     }
 }
 

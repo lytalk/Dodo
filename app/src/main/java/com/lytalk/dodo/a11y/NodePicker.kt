@@ -22,7 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 fun beginNodePick(context: android.content.Context): String? {
     val service = AutoAccessibilityService.instance
         ?: return "请先在权限页打开无障碍服务，才能点选控件"
-    val target = service.lastExternalPackage
+    val target = service.lastExternalPackage?.takeIf { service.isPickTarget(it) }
         ?: return "请先打开要选点的应用，再回到这里点开始点选"
     val resumed = service.lastExternalClass?.let { className ->
         runCatching {
