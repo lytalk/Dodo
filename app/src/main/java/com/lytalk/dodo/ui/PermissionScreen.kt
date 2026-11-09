@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -81,18 +80,15 @@ fun PermissionScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        LazyColumn(
+        LayerScrollColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
                 Text(
                     "MIUI 13 会在自启动关闭、省电限制或锁屏清理时拦住到点拉起。下面几项需要在系统里打开。本应用不能替你打开这些开关。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            item {
                 PermCard(
                     title = "无障碍服务",
                     detail = "用来读取界面文字和控件 id，并执行点击、输入、返回。",
@@ -100,8 +96,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开无障碍设置",
                     onClick = { SystemPermissions.openAccessibility(context) },
                 )
-            }
-            item {
                 PermCard(
                     title = "精确闹钟",
                     detail = "到点由系统唤醒本应用并自动执行，不用去时钟里操作。状态栏若出现闹钟图标，只表示有定时在等待。",
@@ -109,8 +103,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开精确闹钟设置",
                     onClick = { SystemPermissions.openExactAlarm(context) },
                 )
-            }
-            item {
                 PermCard(
                     title = "显示在其他应用上层",
                     detail = "从后台打开你指定的应用时需要这项权限。",
@@ -118,8 +110,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开悬浮窗设置",
                     onClick = { SystemPermissions.openOverlay(context) },
                 )
-            }
-            item {
                 PermCard(
                     title = "Root 权限",
                     detail = "关闭应用会直接执行强行停止，不再打开应用详情。点申请后在 Root 管理器里允许本应用。",
@@ -132,8 +122,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = if (rootBusy) "正在申请" else "申请 Root",
                     onClick = { requestRoot() },
                 )
-            }
-            item {
                 PermCard(
                     title = "自启动",
                     detail = "请到系统里确认：允许本应用自启动。MIUI 不提供查询，这里无法显示开关状态。关闭后，开机或清理内存后收不到到点执行。",
@@ -141,8 +129,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开自启动列表",
                     onClick = { MiuiIntents.openAutostart(context) },
                 )
-            }
-            item {
                 PermCard(
                     title = "后台弹出界面",
                     detail = "请到系统里确认：允许后台弹出界面。打开其他应用时还需要关联启动。这两项都在 MIUI 的权限编辑页。",
@@ -150,8 +136,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开权限编辑",
                     onClick = { MiuiIntents.openPermissionEditor(context) },
                 )
-            }
-            item {
                 PermCard(
                     title = "省电策略",
                     detail = "把本应用设为无限制。系统电池优化${if (battery) "已忽略" else "仍可能限制本应用"}。",
@@ -159,8 +143,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                     action = "打开省电设置",
                     onClick = { MiuiIntents.openBattery(context) },
                 )
-            }
-            item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("最近任务里锁定", style = MaterialTheme.typography.titleMedium)
@@ -168,7 +150,6 @@ fun PermissionScreen(onBack: () -> Unit) {
                         Text("不要在手机管家或安全中心里对本应用使用「结束进程」或「强行停止」。那样做之后，定时和无障碍都会失效，需要再手动打开一次本应用。")
                     }
                 }
-            }
         }
     }
 }

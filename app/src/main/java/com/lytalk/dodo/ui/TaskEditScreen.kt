@@ -3,23 +3,17 @@ package com.lytalk.dodo.ui
 import android.app.Application
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.rememberScrollableState
-import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -59,7 +53,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -123,11 +116,13 @@ fun TaskEditRoute(
         val stopPick = PickEvents.listen { picked ->
             viewModel.addPicked(picked.viewId, picked.text, picked.description, picked.xFraction, picked.yFraction)
         }
+        val stopCancel = PickEvents.listenCancel { viewModel.cancelEdit() }
         val stopUnlock = UnlockEvents.listen { payload ->
             viewModel.addStep(StepTypes.UNLOCK, payload)
         }
         onDispose {
             stopPick()
+            stopCancel()
             stopUnlock()
         }
     }
@@ -149,7 +144,7 @@ fun TaskEditRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TaskEditScreen(
     viewModel: TaskEditViewModel,
@@ -213,36 +208,24 @@ private fun TaskEditScreen(
             )
             scheduleLabel(entity.copy(enabled = viewModel.enabled)) to nextRunLabel(entity)
         }
-        val offset = remember { mutableFloatStateOf(0f) }
-        var viewport by remember { mutableIntStateOf(0) }
-        var contentHeight by remember { mutableIntStateOf(0) }
-        val maxOffset = (contentHeight - viewport).coerceAtLeast(0).toFloat()
-        val scrollState = rememberScrollableState { delta ->
-            val previous = offset.floatValue
-            val next = (previous + delta).coerceIn(-maxOffset, 0f)
-            offset.floatValue = next
-            next - previous
+        val density = LocalDensity.current
+        val spacingPx = with(density) { 12.dp.toPx() }
+        var dragFrom by remember { mutableIntStateOf(-1) }
+        var dragOffset by remember { mutableFloatStateOf(0f) }
+        var dragHeight by remember { mutableFloatStateOf(1f) }
+        val lastStep = viewModel.steps.lastIndex
+        val slot = dragHeight + spacingPx
+        val dropIndex = if (dragFrom < 0 || lastStep < 0) {
+            -1
+        } else {
+            (dragFrom + (dragOffset / slot).roundToInt()).coerceIn(0, lastStep)
         }
-        Box(
-            Modifier
+        LayerScrollColumn(
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
-                .onSizeChanged { viewport = it.height }
-                .clipToBounds()
-                .scrollable(
-                    state = scrollState,
-                    orientation = Orientation.Vertical,
-                    overscrollEffect = null,
-                    bringIntoViewSpec = NoChaseBringIntoView,
-                ),
-        ) {
-        MovingLayer(offset) {
-        Column(
-            Modifier
-                .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                .onSizeChanged { contentHeight = it.height }
-                .padding(16.dp),
+                .imePadding(),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedTextField(
@@ -348,53 +331,41 @@ private fun TaskEditScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            val density = LocalDensity.current
-            val spacingPx = with(density) { 12.dp.toPx() }
-            var dragFrom by remember { mutableIntStateOf(-1) }
-            var dragOffset by remember { mutableFloatStateOf(0f) }
-            var dragHeight by remember { mutableFloatStateOf(1f) }
-            val lastStep = viewModel.steps.lastIndex
-            val slot = dragHeight + spacingPx
-            val dropIndex = if (dragFrom < 0 || lastStep < 0) {
-                -1
-            } else {
-                (dragFrom + (dragOffset / slot).roundToInt()).coerceIn(0, lastStep)
-            }
             viewModel.steps.forEachIndexed { index, step ->
+                key(step.key) {
                 val shift = when {
                     dragFrom < 0 || index == dragFrom -> 0f
                     dragFrom < dropIndex && index in (dragFrom + 1)..dropIndex -> -slot
                     dropIndex < dragFrom && index in dropIndex until dragFrom -> slot
                     else -> 0f
                 }
-                key(step.key) {
-                    StepCard(
-                        index = index,
-                        lastIndex = lastStep,
-                        title = "${index + 1}. ${stepSummary(step.type, step.payload)}",
-                        dragging = dragFrom == index,
-                        fingerOffset = if (dragFrom == index) dragOffset else 0f,
-                        gapShift = shift,
-                        onMeasure = { height -> if (dragFrom == index) dragHeight = height.toFloat() },
-                        onDragStart = { height ->
-                            dragFrom = index
-                            dragHeight = height
-                            dragOffset = 0f
-                        },
-                        onDrag = { dragOffset += it },
-                        onDragEnd = {
-                            if (dropIndex >= 0 && dropIndex != dragFrom) viewModel.moveTo(dragFrom, dropIndex)
-                            dragFrom = -1
-                            dragOffset = 0f
-                        },
-                        onDragCancel = {
-                            dragFrom = -1
-                            dragOffset = 0f
-                        },
-                        onMoveTo = viewModel::moveTo,
-                        onEdit = { openStepEditor(index, viewModel, onPickApp) { dialog = it } },
-                        onRemove = { viewModel.removeStep(index) },
-                    )
+                StepCard(
+                    index = index,
+                    lastIndex = lastStep,
+                    title = "${index + 1}. ${stepSummary(step.type, step.payload)}",
+                    dragging = dragFrom == index,
+                    fingerOffset = if (dragFrom == index) dragOffset else 0f,
+                    gapShift = shift,
+                    onMeasure = { height -> if (dragFrom == index) dragHeight = height.toFloat() },
+                    onDragStart = { height ->
+                        dragFrom = index
+                        dragHeight = height
+                        dragOffset = 0f
+                    },
+                    onDrag = { dragOffset += it },
+                    onDragEnd = {
+                        if (dropIndex >= 0 && dropIndex != dragFrom) viewModel.moveTo(dragFrom, dropIndex)
+                        dragFrom = -1
+                        dragOffset = 0f
+                    },
+                    onDragCancel = {
+                        dragFrom = -1
+                        dragOffset = 0f
+                    },
+                    onMoveTo = viewModel::moveTo,
+                    onEdit = { openStepEditor(index, viewModel, onPickApp) { dialog = it } },
+                    onRemove = { viewModel.removeStep(index) },
+                )
                 }
             }
             TextButton(onClick = {
@@ -493,8 +464,6 @@ private fun TaskEditScreen(
                 Text(if (viewModel.saving) "正在保存" else "保存")
             }
         }
-        }
-        }
     }
 
     when (val current = dialog) {
@@ -527,8 +496,7 @@ private fun TaskEditScreen(
                     AddChoice.Launch -> onPickApp(if (cleanup) "cleanup-launch" else "launch")
                     AddChoice.Close -> onPickApp(if (cleanup) "cleanup-close" else "close")
                     AddChoice.ClickText -> dialog = EditorDialog.ClickText
-                    AddChoice.Pick -> dialog = EditorDialog.Pick
-                    AddChoice.ClickId -> dialog = EditorDialog.ClickId
+                    AddChoice.Control -> dialog = EditorDialog.Control
                     AddChoice.Input -> dialog = EditorDialog.Input
                     AddChoice.Wait -> dialog = EditorDialog.Wait
                     AddChoice.WaitText -> dialog = EditorDialog.WaitText
@@ -580,55 +548,15 @@ private fun TaskEditScreen(
                 dialog = null
             },
         )
-        EditorDialog.Pick -> AlertDialog(
-            onDismissRequest = {
-                viewModel.cancelEdit()
-                dialog = null
-            },
-            title = { Text("点选控件") },
-            text = {
-                Text("控件 id 是应用内部给按钮、图标起的名字，例如 com.tencent.mm:id/icon，界面上不一定写得出来。没有文字的图标也可以点。\n\n请先打开目标应用并停在那个页面，再切换回这里点「开始点选」。开始后会打开刚才那个应用，不会回到桌面。")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    dialog = null
-                    startNodePick(context, viewModel)
-                }) { Text("开始点选") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.cancelEdit()
-                    dialog = null
-                }) { Text("取消") }
-            },
-        )
-        EditorDialog.ClickId -> TextFieldDialog(
-            title = "手动填写控件 id",
-            label = "例如 com.tencent.mm:id/icon",
-            initial = editingText(viewModel, "viewId"),
-            hint = "不知道 id 时用「点选控件」，点一下图标就能看到。这里只给已经知道 id 的时候用。",
-            onDismiss = {
-                viewModel.cancelEdit()
-                dialog = null
-            },
-            onConfirm = { text ->
-                viewModel.addStep(StepTypes.CLICK_ID, StepPayloads.clickId(text))
-                dialog = null
-            },
-        )
-        EditorDialog.EditTarget -> EditTargetDialog(
+        EditorDialog.Control -> ControlDialog(
             viewModel = viewModel,
             onDismiss = {
                 viewModel.cancelEdit()
                 dialog = null
             },
-            onRepick = {
+            onPick = {
                 dialog = null
                 startNodePick(context, viewModel)
-            },
-            onSave = { payload ->
-                viewModel.addStep(StepTypes.CLICK_TARGET, payload)
-                dialog = null
             },
         )
         EditorDialog.Input -> InputDialog(
@@ -694,9 +622,7 @@ private enum class EditorDialog {
     Date,
     Add,
     ClickText,
-    Pick,
-    ClickId,
-    EditTarget,
+    Control,
     Input,
     Wait,
     WaitText,
@@ -704,7 +630,7 @@ private enum class EditorDialog {
     Delete,
 }
 
-private enum class AddChoice { Launch, Close, Unlock, ClickText, Pick, ClickId, Input, Wait, WaitText, Back }
+private enum class AddChoice { Launch, Close, Unlock, ClickText, Control, Input, Wait, WaitText, Back }
 
 private val weekDays = listOf(
     Calendar.MONDAY to "一",
@@ -775,8 +701,7 @@ private val stepChoices = listOf(
     AddChoice.Unlock to "解锁屏幕",
     AddChoice.Close to "关闭应用",
     AddChoice.ClickText to "点击文字",
-    AddChoice.Pick to "点选控件（图标或按钮）",
-    AddChoice.ClickId to "手动填写控件 id",
+    AddChoice.Control to "点击控件",
     AddChoice.Input to "输入文字",
     AddChoice.Wait to "等待一段时间",
     AddChoice.WaitText to "等到文字出现",
@@ -784,51 +709,47 @@ private val stepChoices = listOf(
 )
 
 @Composable
-private fun EditTargetDialog(
+private fun ControlDialog(
     viewModel: TaskEditViewModel,
     onDismiss: () -> Unit,
-    onRepick: () -> Unit,
-    onSave: (String) -> Unit,
+    onPick: () -> Unit,
 ) {
     val payload = editingPayload(viewModel)
-    var viewId by remember { mutableStateOf(payload.optString("viewId")) }
-    var text by remember { mutableStateOf(payload.optString("text")) }
-    var description by remember { mutableStateOf(payload.optString("description")) }
+    val editing = viewModel.editingStepIndex != null
+    val x = if (payload.has("xFraction")) payload.optDouble("xFraction") else -1.0
+    val y = if (payload.has("yFraction")) payload.optDouble("yFraction") else -1.0
+    val label = payload.optString("label").ifBlank { payload.optString("text") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("修改点选") },
+        title = { Text(if (editing) "修改点击的控件" else "点击控件") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = viewId, onValueChange = { viewId = it }, label = { Text("控件 id，可留空") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("文字，可留空") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("描述，可留空") }, modifier = Modifier.fillMaxWidth())
-                Text("位置还是原来点中的地方。想换一个控件，点重新点选。", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "先打开目标应用，停在那一页，再回来点「去点一下」。点的时候屏幕上没有取消栏。点完底部会弹出这个控件的 id 和文字，确认后到点先点控件，找不到再按位置点。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                val viewId = payload.optString("viewId")
+                if (viewId.isNotBlank() || label.isNotBlank() || (x >= 0 && y >= 0)) {
+                    val lines = buildList {
+                        if (viewId.isNotBlank()) add("控件 id：$viewId")
+                        if (label.isNotBlank()) add("文字：$label")
+                        if (x >= 0 && y >= 0) add("位置 ${(x * 100).toInt()}%, ${(y * 100).toInt()}%")
+                    }
+                    Text("当前记下的是${lines.joinToString("，")}。", style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                onSave(
-                    StepPayloads.clickTarget(
-                        viewId.trim(),
-                        text.trim(),
-                        description.trim(),
-                        payload.optDouble("xFraction").toFloat(),
-                        payload.optDouble("yFraction").toFloat(),
-                    ),
-                )
-            }) { Text("保存") }
+            TextButton(onClick = onPick) { Text(if (editing) "重新点一下" else "去点一下") }
         },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onRepick) { Text("重新点选") }
-                TextButton(onClick = onDismiss) { Text("取消") }
-            }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
 private fun startNodePick(context: android.content.Context, viewModel: TaskEditViewModel) {
-    viewModel.error = beginNodePick(context)
+    val message = beginNodePick(context)
+    if (message != null) viewModel.cancelEdit()
+    viewModel.error = message
 }
 
 private fun openStepEditor(
@@ -856,13 +777,9 @@ private fun openStepEditor(
             viewModel.beginEdit(index)
             openDialog(EditorDialog.ClickText)
         }
-        StepTypes.CLICK_ID -> {
+        StepTypes.CLICK_ID, StepTypes.CLICK_TARGET -> {
             viewModel.beginEdit(index)
-            openDialog(EditorDialog.ClickId)
-        }
-        StepTypes.CLICK_TARGET -> {
-            viewModel.beginEdit(index)
-            openDialog(EditorDialog.EditTarget)
+            openDialog(EditorDialog.Control)
         }
         StepTypes.INPUT_TEXT -> {
             viewModel.beginEdit(index)
@@ -899,21 +816,6 @@ private fun editingSeconds(viewModel: TaskEditViewModel): String {
     return if (millis > 0L) (millis / 1000).toString() else "10"
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-private object NoChaseBringIntoView : BringIntoViewSpec {
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
-}
-
-@Composable
-private fun MovingLayer(
-    offset: androidx.compose.runtime.FloatState,
-    content: @Composable () -> Unit,
-) {
-    Box(Modifier.graphicsLayer(translationY = offset.floatValue)) {
-        content()
-    }
-}
-
 @Composable
 private fun StepCard(
     index: Int,
@@ -931,25 +833,17 @@ private fun StepCard(
     onEdit: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val shift by animateFloatAsState(targetValue = gapShift, animationSpec = tween(180), label = "gap")
+    val moving = dragging || gapShift != 0f
+    val shift by animateFloatAsState(targetValue = if (moving) gapShift else 0f, animationSpec = tween(180), label = "gap")
     val scale by animateFloatAsState(targetValue = if (dragging) 1.04f else 1f, animationSpec = tween(160), label = "lift")
     val startRef = rememberUpdatedState(onDragStart)
     val dragRef = rememberUpdatedState(onDrag)
     val endRef = rememberUpdatedState(onDragEnd)
     val cancelRef = rememberUpdatedState(onDragCancel)
-    Card(
-        elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 16.dp else 1.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .zIndex(if (dragging) 1f else 0f)
-            .onSizeChanged { onMeasure(it.height) }
-            .graphicsLayer {
-                translationY = if (dragging) fingerOffset else shift
-                scaleX = scale
-                scaleY = scale
-                alpha = if (dragging) 0.96f else 1f
-            }
-            .pointerInput(index, lastIndex) {
+    val base = Modifier
+        .fillMaxWidth()
+        .onSizeChanged { onMeasure(it.height) }
+        .pointerInput(index, lastIndex) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { startRef.value(size.height.toFloat()) },
                     onDragCancel = { cancelRef.value() },
@@ -959,7 +853,20 @@ private fun StepCard(
                         dragRef.value(dragAmount.y)
                     },
                 )
-            },
+            }
+    val cardModifier = if (!moving) {
+        base
+    } else {
+        base.zIndex(if (dragging) 1f else 0f).graphicsLayer {
+            translationY = if (dragging) fingerOffset else shift
+            scaleX = scale
+            scaleY = scale
+            alpha = if (dragging) 0.96f else 1f
+        }
+    }
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 8.dp else 0.dp),
+        modifier = cardModifier,
     ) {
         Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
             Text(title)

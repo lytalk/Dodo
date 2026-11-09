@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -82,12 +80,11 @@ fun InspectScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        LazyColumn(
+        LayerScrollColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
@@ -99,8 +96,7 @@ fun InspectScreen(onBack: () -> Unit) {
                         if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     }) { Text("点选控件") }
                 }
-            }
-            items(rows) { row ->
+            rows.forEach { row ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (row.text.isNotBlank()) {

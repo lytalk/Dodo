@@ -83,6 +83,7 @@ fun AppPickerScreen(onBack: () -> Unit, onPick: (packageName: String, label: Str
                 label = { Text("搜索名称或包名") },
                 singleLine = true,
             )
+            // 全部已安装应用都带图标，放不进一整张图层，这里仍按条绘制。
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
