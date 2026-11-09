@@ -44,7 +44,13 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("picker") {
                         AppPickerScreen(
-                            onBack = { navController.popBackStack() },
+                            onBack = {
+                                navController.previousBackStackEntry?.savedStateHandle?.set(
+                                    "pickCancelled",
+                                    System.nanoTime(),
+                                )
+                                navController.popBackStack()
+                            },
                             onPick = { packageName, label ->
                                 navController.previousBackStackEntry?.savedStateHandle?.set("pickedPackage", packageName)
                                 navController.previousBackStackEntry?.savedStateHandle?.set("pickedLabel", label)

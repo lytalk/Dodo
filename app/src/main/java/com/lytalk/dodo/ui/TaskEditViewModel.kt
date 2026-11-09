@@ -53,6 +53,7 @@ class TaskEditViewModel(
     var cleanupStepType by mutableStateOf("")
     var cleanupPayload by mutableStateOf("")
     var editingCleanup by mutableStateOf(false)
+    var editingStepIndex by mutableStateOf<Int?>(null)
     var error by mutableStateOf<String?>(null)
     var loaded by mutableStateOf(taskId == 0L)
     var saving by mutableStateOf(false)
@@ -164,7 +165,26 @@ class TaskEditViewModel(
         )
     }
 
+    fun beginEdit(index: Int) {
+        if (index !in steps.indices) return
+        editingCleanup = false
+        editingStepIndex = index
+    }
+
+    fun cancelEdit() {
+        editingStepIndex = null
+    }
+
     fun addStep(type: String, payload: String) {
+        val editIndex = editingStepIndex
+        if (editIndex != null) {
+            if (editIndex in steps.indices) {
+                val current = steps[editIndex]
+                steps[editIndex] = current.copy(type = type, payload = payload)
+            }
+            editingStepIndex = null
+            return
+        }
         if (editingCleanup) {
             cleanupType = CleanupTypes.STEP
             cleanupStepType = type

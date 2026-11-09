@@ -96,6 +96,11 @@ fun TaskEditRoute(
     val handle = navController.currentBackStackEntry?.savedStateHandle
     var seenToken by remember { mutableStateOf(0L) }
     LaunchedEffect(handle) {
+        handle?.getStateFlow("pickCancelled", 0L)?.collect { token ->
+            if (token != 0L) viewModel.cancelEdit()
+        }
+    }
+    LaunchedEffect(handle) {
         handle?.getStateFlow("pickToken", 0L)?.collect { token ->
             if (token != 0L && token != seenToken) {
                 seenToken = token
@@ -339,7 +344,7 @@ private fun TaskEditScreen(
             )
             Text("步骤", style = MaterialTheme.typography.titleMedium)
             Text(
-                "长按步骤后它会浮起来，拖到两条步骤中间时会让出一条缝，松手后插入。置顶会把它放到第一步。",
+                "长按步骤后它会浮起来，拖到两条步骤中间时会让出一条缝，松手后插入。置顶会把它放到第一步。点「编辑」可以改这一步。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -387,11 +392,13 @@ private fun TaskEditScreen(
                             dragOffset = 0f
                         },
                         onMoveTo = viewModel::moveTo,
+                        onEdit = { openStepEditor(index, viewModel, onPickApp) { dialog = it } },
                         onRemove = { viewModel.removeStep(index) },
                     )
                 }
             }
             TextButton(onClick = {
+                viewModel.cancelEdit()
                 viewModel.editingCleanup = false
                 dialog = EditorDialog.Add
             }) { Text("添加步骤") }
@@ -531,7 +538,10 @@ private fun TaskEditScreen(
             },
         )
         EditorDialog.Unlock -> AlertDialog(
-            onDismissRequest = { dialog = null },
+            onDismissRequest = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             title = { Text("录制解锁动作") },
             text = {
                 Text("可以录一段滑屏，也可以录多次点击。到点后屏幕会先亮起并停在锁屏上，这一步只把录好的滑动和点击做一遍，不再盖住屏幕。开始后屏幕上方有保存条。如果要对着锁屏图案录，开始后按电源键锁屏，录制层会留在锁屏上面，做完点顶部保存。建议把这一步放在任务的第一步。只有当前是锁屏时才会滑动或点击；已经解锁就跳过这一步，继续后面的步骤。")
@@ -541,6 +551,7 @@ private fun TaskEditScreen(
                     dialog = null
                     val service = com.lytalk.dodo.a11y.AutoAccessibilityService.instance
                     if (service == null) {
+                        viewModel.cancelEdit()
                         viewModel.error = "请先在权限页打开无障碍服务，才能录制解锁动作"
                     } else {
                         viewModel.error = null
@@ -548,20 +559,32 @@ private fun TaskEditScreen(
                     }
                 }) { Text("开始录制") }
             },
-            dismissButton = { TextButton(onClick = { dialog = null }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.cancelEdit()
+                    dialog = null
+                }) { Text("取消") }
+            },
         )
         EditorDialog.ClickText -> TextFieldDialog(
             title = "点击文字",
             label = "界面上的文字",
+            initial = editingText(viewModel, "text"),
             hint = "会在整个界面里找，不限于当前屏幕上看得见的部分。列表没显示出来时会先滚到顶，再往下翻。",
-            onDismiss = { dialog = null },
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             onConfirm = { text ->
                 viewModel.addStep(StepTypes.CLICK_TEXT, StepPayloads.clickText(text))
                 dialog = null
             },
         )
         EditorDialog.Pick -> AlertDialog(
-            onDismissRequest = { dialog = null },
+            onDismissRequest = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             title = { Text("点选控件") },
             text = {
                 Text("控件 id 是应用内部给按钮、图标起的名字，例如 com.tencent.mm:id/icon，界面上不一定写得出来。没有文字的图标也可以点。\n\n请先打开目标应用并停在那个页面，再切换回这里点「开始点选」。开始后会打开刚才那个应用，不会回到桌面。")
@@ -572,20 +595,50 @@ private fun TaskEditScreen(
                     startNodePick(context, viewModel)
                 }) { Text("开始点选") }
             },
-            dismissButton = { TextButton(onClick = { dialog = null }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.cancelEdit()
+                    dialog = null
+                }) { Text("取消") }
+            },
         )
         EditorDialog.ClickId -> TextFieldDialog(
             title = "手动填写控件 id",
             label = "例如 com.tencent.mm:id/icon",
+            initial = editingText(viewModel, "viewId"),
             hint = "不知道 id 时用「点选控件」，点一下图标就能看到。这里只给已经知道 id 的时候用。",
-            onDismiss = { dialog = null },
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             onConfirm = { text ->
                 viewModel.addStep(StepTypes.CLICK_ID, StepPayloads.clickId(text))
                 dialog = null
             },
         )
+        EditorDialog.EditTarget -> EditTargetDialog(
+            viewModel = viewModel,
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
+            onRepick = {
+                dialog = null
+                startNodePick(context, viewModel)
+            },
+            onSave = { payload ->
+                viewModel.addStep(StepTypes.CLICK_TARGET, payload)
+                dialog = null
+            },
+        )
         EditorDialog.Input -> InputDialog(
-            onDismiss = { dialog = null },
+            initialText = editingText(viewModel, "text"),
+            initialTargetText = editingText(viewModel, "targetText"),
+            initialTargetId = editingText(viewModel, "targetViewId"),
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             onConfirm = { text, targetText, targetId ->
                 viewModel.addStep(StepTypes.INPUT_TEXT, StepPayloads.input(text, targetText, targetId))
                 dialog = null
@@ -594,15 +647,24 @@ private fun TaskEditScreen(
         EditorDialog.Wait -> NumberDialog(
             title = "等待毫秒",
             label = "1000 表示 1 秒，最长 120000",
-            initial = "1000",
-            onDismiss = { dialog = null },
+            initial = editingNumber(viewModel, "millis", "1000"),
+            confirmLabel = if (viewModel.editingStepIndex != null) "保存" else "添加",
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             onConfirm = { value ->
                 viewModel.addStep(StepTypes.WAIT, StepPayloads.wait(value.coerceIn(0, 120_000)))
                 dialog = null
             },
         )
         EditorDialog.WaitText -> WaitTextDialog(
-            onDismiss = { dialog = null },
+            initialText = editingText(viewModel, "text"),
+            initialSeconds = editingSeconds(viewModel),
+            onDismiss = {
+                viewModel.cancelEdit()
+                dialog = null
+            },
             onConfirm = { text, seconds ->
                 viewModel.addStep(
                     StepTypes.WAIT_FOR_TEXT,
@@ -634,6 +696,7 @@ private enum class EditorDialog {
     ClickText,
     Pick,
     ClickId,
+    EditTarget,
     Input,
     Wait,
     WaitText,
@@ -720,8 +783,120 @@ private val stepChoices = listOf(
     AddChoice.Back to "按返回",
 )
 
+@Composable
+private fun EditTargetDialog(
+    viewModel: TaskEditViewModel,
+    onDismiss: () -> Unit,
+    onRepick: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    val payload = editingPayload(viewModel)
+    var viewId by remember { mutableStateOf(payload.optString("viewId")) }
+    var text by remember { mutableStateOf(payload.optString("text")) }
+    var description by remember { mutableStateOf(payload.optString("description")) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("修改点选") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = viewId, onValueChange = { viewId = it }, label = { Text("控件 id，可留空") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("文字，可留空") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("描述，可留空") }, modifier = Modifier.fillMaxWidth())
+                Text("位置还是原来点中的地方。想换一个控件，点重新点选。", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(
+                    StepPayloads.clickTarget(
+                        viewId.trim(),
+                        text.trim(),
+                        description.trim(),
+                        payload.optDouble("xFraction").toFloat(),
+                        payload.optDouble("yFraction").toFloat(),
+                    ),
+                )
+            }) { Text("保存") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onRepick) { Text("重新点选") }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        },
+    )
+}
+
 private fun startNodePick(context: android.content.Context, viewModel: TaskEditViewModel) {
     viewModel.error = beginNodePick(context)
+}
+
+private fun openStepEditor(
+    index: Int,
+    viewModel: TaskEditViewModel,
+    onPickApp: (String) -> Unit,
+    openDialog: (EditorDialog) -> Unit,
+) {
+    val step = viewModel.steps.getOrNull(index) ?: return
+    when (step.type) {
+        StepTypes.BACK -> viewModel.error = "按返回没有可改的内容"
+        StepTypes.LAUNCH_APP -> {
+            viewModel.beginEdit(index)
+            onPickApp("launch")
+        }
+        StepTypes.CLOSE_APP -> {
+            viewModel.beginEdit(index)
+            onPickApp("close")
+        }
+        StepTypes.UNLOCK -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.Unlock)
+        }
+        StepTypes.CLICK_TEXT -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.ClickText)
+        }
+        StepTypes.CLICK_ID -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.ClickId)
+        }
+        StepTypes.CLICK_TARGET -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.EditTarget)
+        }
+        StepTypes.INPUT_TEXT -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.Input)
+        }
+        StepTypes.WAIT -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.Wait)
+        }
+        StepTypes.WAIT_FOR_TEXT -> {
+            viewModel.beginEdit(index)
+            openDialog(EditorDialog.WaitText)
+        }
+        else -> viewModel.error = "这一步暂时不能改"
+    }
+}
+
+private fun editingPayload(viewModel: TaskEditViewModel): org.json.JSONObject {
+    val index = viewModel.editingStepIndex ?: return org.json.JSONObject()
+    val step = viewModel.steps.getOrNull(index) ?: return org.json.JSONObject()
+    return StepPayloads.read(step.payload)
+}
+
+private fun editingText(viewModel: TaskEditViewModel, name: String): String =
+    editingPayload(viewModel).optString(name)
+
+private fun editingNumber(viewModel: TaskEditViewModel, name: String, fallback: String): String {
+    val value = editingPayload(viewModel).optLong(name, -1L)
+    return if (value >= 0L) value.toString() else fallback
+}
+
+private fun editingSeconds(viewModel: TaskEditViewModel): String {
+    val millis = editingPayload(viewModel).optLong("timeoutMs", -1L)
+    return if (millis > 0L) (millis / 1000).toString() else "10"
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -753,6 +928,7 @@ private fun StepCard(
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
     onMoveTo: (Int, Int) -> Unit,
+    onEdit: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val shift by animateFloatAsState(targetValue = gapShift, animationSpec = tween(180), label = "gap")
@@ -788,6 +964,7 @@ private fun StepCard(
         Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
             Text(title)
             Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onEdit) { Text("编辑") }
                 TextButton(onClick = { onMoveTo(index, 0) }, enabled = index > 0) { Text("置顶") }
                 IconButton(onClick = { onMoveTo(index, index - 1) }, enabled = index > 0) {
                     Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "上移")
@@ -809,9 +986,10 @@ private fun TextFieldDialog(
     label: String,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
+    initial: String = "",
     hint: String? = null,
 ) {
-    var value by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -822,7 +1000,7 @@ private fun TextFieldDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (value.isNotBlank()) onConfirm(value.trim()) }) { Text("添加") }
+            TextButton(onClick = { if (value.isNotBlank()) onConfirm(value.trim()) }) { Text(if (initial.isBlank()) "添加" else "保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -832,10 +1010,13 @@ private fun TextFieldDialog(
 private fun InputDialog(
     onDismiss: () -> Unit,
     onConfirm: (text: String, targetText: String, targetId: String) -> Unit,
+    initialText: String = "",
+    initialTargetText: String = "",
+    initialTargetId: String = "",
 ) {
-    var text by remember { mutableStateOf("") }
-    var targetText by remember { mutableStateOf("") }
-    var targetId by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(initialText) }
+    var targetText by remember { mutableStateOf(initialTargetText) }
+    var targetId by remember { mutableStateOf(initialTargetId) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("输入文字") },
@@ -848,7 +1029,9 @@ private fun InputDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(text, targetText.trim(), targetId.trim()) }) { Text("添加") }
+            TextButton(onClick = { onConfirm(text, targetText.trim(), targetId.trim()) }) {
+                Text(if (initialText.isBlank() && initialTargetText.isBlank() && initialTargetId.isBlank()) "添加" else "保存")
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -861,6 +1044,7 @@ private fun NumberDialog(
     initial: String,
     onDismiss: () -> Unit,
     onConfirm: (Long) -> Unit,
+    confirmLabel: String = "添加",
 ) {
     var value by remember { mutableStateOf(initial) }
     AlertDialog(
@@ -870,16 +1054,21 @@ private fun NumberDialog(
             OutlinedTextField(value = value, onValueChange = { value = it.filter(Char::isDigit) }, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(value.toLongOrNull() ?: 0L) }) { Text("添加") }
+            TextButton(onClick = { onConfirm(value.toLongOrNull() ?: 0L) }) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
 @Composable
-private fun WaitTextDialog(onDismiss: () -> Unit, onConfirm: (String, Long) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    var seconds by remember { mutableStateOf("10") }
+private fun WaitTextDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, Long) -> Unit,
+    initialText: String = "",
+    initialSeconds: String = "10",
+) {
+    var text by remember { mutableStateOf(initialText) }
+    var seconds by remember { mutableStateOf(initialSeconds) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("等到文字出现") },
@@ -897,7 +1086,7 @@ private fun WaitTextDialog(onDismiss: () -> Unit, onConfirm: (String, Long) -> U
         confirmButton = {
             TextButton(onClick = {
                 if (text.isNotBlank()) onConfirm(text.trim(), seconds.toLongOrNull() ?: 10L)
-            }) { Text("添加") }
+            }) { Text(if (initialText.isBlank()) "添加" else "保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )

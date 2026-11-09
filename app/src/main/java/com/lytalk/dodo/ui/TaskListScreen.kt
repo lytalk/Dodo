@@ -1,5 +1,8 @@
 package com.lytalk.dodo.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,6 +55,12 @@ fun TaskListScreen(
 ) {
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val exportTask = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        if (uri != null) viewModel.exportTo(uri)
+    }
+    val importTask = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) viewModel.importFrom(uri)
+    }
     LaunchedEffect(Unit) { viewModel.ensureGuard() }
 
     Scaffold(
@@ -95,6 +104,13 @@ fun TaskListScreen(
                         }
                     }
                 }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { exportTask.launch("嘟嘟任务.json") }) { Text("导出任务") }
+                    TextButton(onClick = { importTask.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("导入任务") }
+                }
+                viewModel.message?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
             }
             if (tasks.isEmpty()) {
                 item {
