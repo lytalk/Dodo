@@ -161,18 +161,27 @@ class StepExecutor(private val service: AutoAccessibilityService) {
         val viewId = json.optString("viewId")
         val text = json.optString("text")
         val description = json.optString("description")
+        val x = json.optDouble("xFraction", -1.0)
+        val y = json.optDouble("yFraction", -1.0)
+        if (viewId.isBlank() && text.isBlank() && description.isBlank() && x >= 0 && y >= 0) {
+            return tapAt(x, y)
+        }
         val found = searchAndClick(actions) {
             (viewId.isNotBlank() && actions.clickViewId(viewId)) ||
                 (text.isNotBlank() && actions.clickText(text)) ||
                 (description.isNotBlank() && description != text && actions.clickText(description))
         }
         if (found) return null
-        val x = json.optDouble("xFraction", -1.0)
-        val y = json.optDouble("yFraction", -1.0)
-        if (x < 0 || y < 0) return "没有可用的控件信息"
+        if (x < 0 || y < 0) {
+            return if (viewId.isNotBlank()) "在整个界面里找不到控件：$viewId" else "没有可用的控件信息"
+        }
+        return tapAt(x, y)
+    }
+
+    private suspend fun tapAt(x: Double, y: Double): String? {
         val metrics = service.resources.displayMetrics
         val tapped = service.tap((x * metrics.widthPixels).toFloat(), (y * metrics.heightPixels).toFloat())
-        return if (tapped) null else "按点选位置点击失败"
+        return if (tapped) null else "按这个位置点击失败"
     }
 
     private suspend fun closeApp(packageName: String, label: String): String? {

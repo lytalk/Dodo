@@ -33,6 +33,12 @@ object StepPayloads {
     fun clickId(viewId: String): String =
         JSONObject().put("viewId", viewId).toString()
 
+    fun clickPosition(xFraction: Float, yFraction: Float, label: String): String = JSONObject()
+        .put("xFraction", xFraction.toDouble())
+        .put("yFraction", yFraction.toDouble())
+        .put("label", label)
+        .toString()
+
     fun clickTarget(
         viewId: String,
         text: String,
@@ -99,13 +105,16 @@ fun stepSummary(type: String, payload: String): String {
 private fun clickTargetSummary(json: JSONObject): String {
     val viewId = json.optString("viewId")
     val text = json.optString("text").ifBlank { json.optString("description") }
+    val x = json.optDouble("xFraction", -1.0)
+    val y = json.optDouble("yFraction", -1.0)
+    if (viewId.isBlank() && text.isBlank() && x >= 0 && y >= 0) {
+        val place = "位置 ${(x * 100).toInt()}%, ${(y * 100).toInt()}%"
+        val label = json.optString("label")
+        return if (label.isBlank()) "点击$place" else "点击$place（$label）"
+    }
     return when {
-        viewId.isNotBlank() -> "点选控件：$viewId"
-        text.isNotBlank() -> "点选控件：「$text」"
-        else -> {
-            val x = (json.optDouble("xFraction") * 100).toInt()
-            val y = (json.optDouble("yFraction") * 100).toInt()
-            "点选位置：$x%, $y%"
-        }
+        viewId.isNotBlank() -> "点击控件：$viewId"
+        text.isNotBlank() -> "点击控件：「$text」"
+        else -> "点击位置"
     }
 }

@@ -24,6 +24,7 @@ fun beginNodePick(context: android.content.Context): String? {
         ?: return "请先在权限页打开无障碍服务，才能点选控件"
     val target = service.lastExternalPackage?.takeIf { service.isPickTarget(it) }
         ?: return "请先打开要选点的应用，再回到这里点开始点选"
+    service.setRetrievalActive(true)
     val resumed = service.lastExternalClass?.let { className ->
         runCatching {
             context.startActivity(
@@ -33,7 +34,10 @@ fun beginNodePick(context: android.content.Context): String? {
     } == true
     if (!resumed) {
         val launch = context.packageManager.getLaunchIntentForPackage(target)
-            ?: return "无法回到刚才的应用"
+        if (launch == null) {
+            service.setRetrievalActive(false)
+            return "无法回到刚才的应用"
+        }
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
             component = launch.component
@@ -42,6 +46,7 @@ fun beginNodePick(context: android.content.Context): String? {
         try {
             context.startActivity(intent)
         } catch (_: Exception) {
+            service.setRetrievalActive(false)
             return "无法回到刚才的应用"
         }
     }
@@ -51,6 +56,7 @@ fun beginNodePick(context: android.content.Context): String? {
 
 object PickEvents {
     private val listeners = CopyOnWriteArrayList<(PickedNode) -> Unit>()
+    private val cancelListeners = CopyOnWriteArrayList<() -> Unit>()
 
     @Volatile
     var pending: PickedNode? = null
@@ -58,6 +64,15 @@ object PickEvents {
     fun listen(listener: (PickedNode) -> Unit): () -> Unit {
         listeners += listener
         return { listeners -= listener }
+    }
+
+    fun listenCancel(listener: () -> Unit): () -> Unit {
+        cancelListeners += listener
+        return { cancelListeners -= listener }
+    }
+
+    fun cancel() {
+        cancelListeners.forEach { it() }
     }
 
     fun hasListeners(): Boolean = listeners.isNotEmpty()
@@ -82,27 +97,25 @@ class NodePicker(private val service: AutoAccessibilityService) {
     fun show() {
         handler.post {
             if (overlay != null) return@post
+            service.setRetrievalActive(true)
             overlay = buildScrim()
             windowManager.addView(overlay, overlayLayout())
+            Toast.makeText(service, "点一下要操作的控件", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun hide() {
         handler.post {
-            val view = overlay ?: return@post
+            val view = overlay
             overlay = null
-            runCatching { windowManager.removeView(view) }
+            if (view != null) runCatching { windowManager.removeView(view) }
+            service.setRetrievalActive(false)
         }
     }
 
     private fun buildScrim(): View {
         val root = FrameLayout(ui)
-        root.setBackgroundColor(0x33000000)
-        root.addView(instructionBar(root), FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP,
-        ))
+        root.setBackgroundColor(Color.TRANSPARENT)
         root.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
                 showResult(root, event.rawX.toInt(), event.rawY.toInt())
@@ -114,11 +127,13 @@ class NodePicker(private val service: AutoAccessibilityService) {
 
     private fun showResult(root: FrameLayout, x: Int, y: Int) {
         root.setOnTouchListener(null)
-        root.removeAllViews()
-        root.setBackgroundColor(0x66000000)
+        runCatching { windowManager.removeViewImmediate(root) }
+        overlay = null
         val picked = runCatching { NodeActions(service).hitTest(x, y) }.getOrNull()
             ?: blankPick(x, y)
-        root.addView(resultCard(picked), FrameLayout.LayoutParams(
+        val result = FrameLayout(ui)
+        result.setBackgroundColor(0x66000000)
+        result.addView(resultCard(picked), FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.BOTTOM,
@@ -126,6 +141,8 @@ class NodePicker(private val service: AutoAccessibilityService) {
             val margin = dp(16)
             setMargins(margin, margin, margin, margin)
         })
+        overlay = result
+        windowManager.addView(result, overlayLayout())
     }
 
     private fun resultCard(picked: PickedNode): View {
@@ -137,27 +154,31 @@ class NodePicker(private val service: AutoAccessibilityService) {
                 cornerRadius = dp(16).toFloat()
             }
         }
+        val x = (picked.xFraction * 100).toInt()
+        val y = (picked.yFraction * 100).toInt()
+        val here = picked.text.ifBlank { picked.description }
         card.addView(text("点到的控件", 18f, Color.parseColor("#E7C27A")))
-        val idLine = if (picked.viewId.isBlank()) "控件 id：没有。没有文字的图标经常这样，仍可按这个位置点击。" else "控件 id：${picked.viewId}"
-        card.addView(text(idLine, 15f, Color.parseColor("#E3E8E4")))
-        if (picked.text.isNotBlank()) card.addView(text("文字：${picked.text}", 14f, Color.parseColor("#C5D0CB")))
-        if (picked.description.isNotBlank() && picked.description != picked.text) {
-            card.addView(text("描述：${picked.description}", 14f, Color.parseColor("#C5D0CB")))
-        }
-        if (picked.packageName.isNotBlank()) {
-            card.addView(text(picked.packageName, 12f, Color.parseColor("#8FA399")))
-        }
+        card.addView(
+            text(
+                if (picked.viewId.isBlank()) "控件 id：没有" else "控件 id：${picked.viewId}",
+                15f,
+                Color.parseColor("#E3E8E4"),
+            ),
+        )
+        if (here.isNotBlank()) card.addView(text("文字：$here", 14f, Color.parseColor("#C5D0CB")))
+        card.addView(text("位置 $x%, $y%。到点先点这个控件，找不到再按位置点。", 14f, Color.parseColor("#8FA399")))
         val actions = LinearLayout(ui).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(button("添加步骤") {
+        actions.addView(button("用这个控件") {
             val listened = PickEvents.hasListeners()
             PickEvents.deliver(picked)
-            val message = if (listened) "已添加点击步骤" else "已记录，打开任务编辑后会加入步骤"
+            val message = if (listened) "已记下这个控件" else "已记录，打开任务编辑后会加入步骤"
             Toast.makeText(service, message, Toast.LENGTH_SHORT).show()
             bringAppToFront()
             hide()
         })
         actions.addView(button("重选") { reshow() })
         actions.addView(button("取消") {
+            PickEvents.cancel()
             bringAppToFront()
             hide()
         })
@@ -172,18 +193,7 @@ class NodePicker(private val service: AutoAccessibilityService) {
             if (view != null) runCatching { windowManager.removeView(view) }
             overlay = buildScrim()
             windowManager.addView(overlay, overlayLayout())
-        }
-    }
-
-    private fun instructionBar(root: FrameLayout): View {
-        return text("点一下要操作的图标、按钮或文字。点此取消", 16f, Color.parseColor("#003824")).apply {
-            setBackgroundColor(Color.parseColor("#8FDBB2"))
-            setPadding(dp(16), dp(28), dp(16), dp(16))
-            setOnClickListener {
-                root.setOnTouchListener(null)
-                bringAppToFront()
-                hide()
-            }
+            Toast.makeText(service, "点一下要操作的控件", Toast.LENGTH_SHORT).show()
         }
     }
 
