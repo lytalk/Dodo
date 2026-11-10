@@ -10,6 +10,11 @@ object RootShell {
         return result.ok && result.output.contains("uid=0")
     }
 
+    fun tap(x: Int, y: Int): Boolean {
+        if (x !in 0..4096 || y !in 0..8192) return false
+        return exec("input tap $x $y").ok
+    }
+
     fun forceStop(packageName: String): String? {
         if (!packageNamePattern.matches(packageName)) return "应用包名无效"
         val result = exec("am force-stop $packageName")

@@ -13,6 +13,7 @@ import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputMethodManager
+import com.lytalk.dodo.schedule.RootShell
 import java.util.IdentityHashMap
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -369,18 +370,29 @@ class NodeActions(private val service: AccessibilityService) {
     }
 
     private fun clickNode(session: Session, node: AccessibilityNodeInfo): Boolean {
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
         var current: AccessibilityNodeInfo? = node
         var hops = 0
         while (current != null && hops < 8) {
-            if (current.isClickable && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return true
-            }
             val parent = current.parent ?: break
             session.track(parent)
+            if (parent.isClickable) {
+                if (parent.className?.toString()?.contains("WebView", ignoreCase = true) == true) {
+                    return tapBounds(node)
+                }
+                if (parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            }
             current = parent
             hops++
         }
-        return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        return node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || tapBounds(node)
+    }
+
+    private fun tapBounds(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (bounds.width() <= 0 || bounds.height() <= 0) return false
+        return RootShell.tap(bounds.centerX(), bounds.centerY())
     }
 
     private inline fun <T> withSession(block: (Session) -> T): T {

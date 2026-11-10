@@ -164,14 +164,17 @@ class StepExecutor(private val service: AutoAccessibilityService) {
         val x = json.optDouble("xFraction", -1.0)
         val y = json.optDouble("yFraction", -1.0)
         if (viewId.isBlank() && text.isBlank() && description.isBlank() && x >= 0 && y >= 0) {
+            delay(2_000)
             return tapAt(x, y)
         }
-        val found = searchAndClick(actions) {
-            (viewId.isNotBlank() && actions.clickViewId(viewId)) ||
+        val deadline = System.currentTimeMillis() + 4_000
+        while (System.currentTimeMillis() < deadline) {
+            val found = (viewId.isNotBlank() && actions.clickViewId(viewId)) ||
                 (text.isNotBlank() && actions.clickText(text)) ||
                 (description.isNotBlank() && description != text && actions.clickText(description))
+            if (found) return null
+            delay(300)
         }
-        if (found) return null
         if (x < 0 || y < 0) {
             return if (viewId.isNotBlank()) "在整个界面里找不到控件：$viewId" else "没有可用的控件信息"
         }
@@ -180,8 +183,12 @@ class StepExecutor(private val service: AutoAccessibilityService) {
 
     private suspend fun tapAt(x: Double, y: Double): String? {
         val metrics = service.resources.displayMetrics
-        val tapped = service.tap((x * metrics.widthPixels).toFloat(), (y * metrics.heightPixels).toFloat())
-        return if (tapped) null else "按这个位置点击失败"
+        val px = x * metrics.widthPixels
+        val py = y * metrics.heightPixels
+        val gestured = service.tap(px.toFloat(), py.toFloat())
+        if (gestured) return null
+        val touched = withContext(Dispatchers.IO) { RootShell.tap(px.toInt(), py.toInt()) }
+        return if (touched) null else "按这个位置点击失败"
     }
 
     private suspend fun closeApp(packageName: String, label: String): String? {
